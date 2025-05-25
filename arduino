@@ -1,0 +1,248 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include  "DHT.h"
+
+#define SSID "INCON_wifi"       // Wi-Fi SSID
+#define PASSWORD "incon2025" // Wi-Fi password
+
+#define MQTT_SERVER "10.0.0.92" // IP of your MQTT broker
+#define MQTT_CLIENT "group7"
+
+#define TRIG_PIN 27
+#define ECHO_PIN 14
+#define PIN_TEMP 36
+
+#define DHT_PIN  19
+#define DHT_TYPE DHT11
+#define LDR_PIN 36
+#define LED1 16
+#define LED2 17
+#define LED3 5
+#define LED4 26
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+
+#define PUB_TOPIC_TEMP "incon/group7/temperature"
+#define PUB_TOPIC_DIST "incon/group7/distancia"
+#define PUB_TOPIC_HUM  "incon/group7/humidity"
+#define PUB_TOPIC_LDR  "incon/group7/Ledr"
+#define SUB_TOPIC_LED_STATE "incon/group7/sub_led_state"
+#define SUB_TOPIC_LED_STATE1 "incon/group7/sub_led_state1"
+#define SUB_TOPIC_LED_STATE2 "incon/group7/sub_led_state2"
+#define SUB_TOPIC_LED_STATE3 "incon/group7/sub_led_state3"
+#define SUB_TOPIC_LED_STATE4 "incon/group7/sub_led_state4"
+
+
+int value = 0;
+float temp=0.0;
+float distance=0.0;
+
+float hum;
+float temp;
+float ledr;
+float readSonar()
+{
+digitalWrite(TRIG_PIN, LOW);
+delayMicroseconds(2);
+
+digitalWrite(TRIG_PIN, HIGH);
+delayMicroseconds(10); 
+
+digitalWrite(TRIG_PIN, LOW);
+
+long time = pulseIn(ECHO_PIN, HIGH);
+
+float dist = time/58;
+
+return dist;
+
+}
+
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(PIN_TEMP, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(LDR_PIN, INPUT);
+
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  pinMode(LED4, OUTPUT);
+
+   digitalWrite(LED1, LOW);
+  digitalWrite(LED2, LOW);
+  digitalWrite(LED3, LOW);
+  digitalWrite(LED4, LOW);
+  digitalWrite(LED_BUILTIN, LOW);
+  Serial.begin(9600);
+   dht.begin();
+  wifi_setup();
+
+
+  client.setServer(MQTT_SERVER, 1883);
+  client.setCallback(callback);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+value=analogRead(PIN_TEMP);
+temp=((value*0.004887586)-0.5)*100;
+  String text = String(temp);
+  client.publish(PUB_TOPIC_TEMP, text.c_str());
+  Serial.println("Message sent");
+
+ String text;
+
+  
+
+distance = readSonar();
+text= String(distance);
+client.publish(PUB_TOPIC_DIST, text.c_str());
+  Serial.println("Message sent");
+
+
+  Serial.print("Temperature: ");
+  temp = dht.readTemperature();
+  Serial.println(temp);
+  text = String(temp);
+  client.publish(PUB_TOPIC_TEMP, text.c_str());
+  Serial.println("Message sent");
+ 
+Serial.print("Humidade: ");
+  hum = dht.readHumidity(); // Humidity - unidade
+  Serial.println(hum);
+  text = String(hum);
+  client.publish(PUB_TOPIC_HUM, text.c_str());
+  Serial.println("Message sent");
+
+ ledr = analogRead(LDR_PIN);
+  Serial.println(ledr);
+  text = String(ledr);
+ client.publish(PUB_TOPIC_LDR, text.c_str());
+  Serial.println("Message sent");
+
+
+  delay(1000);
+
+
+
+}
+
+
+
+
+
+void wifi_setup() {
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(SSID);
+
+  WiFi.begin(SSID, PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received: ");
+  String message;
+
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+    message += (char)payload[i];
+  }
+
+  Serial.println(topic);
+
+  if (String(topic) == SUB_TOPIC_LED_STATE) {
+    if (message == "ON") {
+      Serial.print("LED ON");
+      digitalWrite(LED_BUILTIN, HIGH);
+    }
+    else if (message == "OFF") {
+      Serial.print("LED OFF");
+      digitalWrite(LED_BUILTIN, LOW);
+    }
+  } 
+  if (String(topic) == SUB_TOPIC_LED_STATE1) {
+    if (message == "ON") {
+      Serial.print("LED ON");
+      digitalWrite(LED1, HIGH);
+    }
+    else if (message == "OFF") {
+      Serial.print("LED OFF");
+      digitalWrite(LED1, LOW);
+    }
+  }
+  if (String(topic) == SUB_TOPIC_LED_STATE2) {
+    if (message == "ON") {
+      Serial.print("LED ON");
+      digitalWrite(LED2, HIGH);
+    }
+    else if (message == "OFF") {
+      Serial.print("LED OFF");
+      digitalWrite(LED2, LOW);
+    }
+  }
+  if (String(topic) == SUB_TOPIC_LED_STATE3) {
+    if (message == "ON") {
+      Serial.print("LED ON");
+      digitalWrite(LED3, HIGH);
+    }
+    else if (message == "OFF") {
+      Serial.print("LED OFF");
+      digitalWrite(LED3, LOW);
+    }
+  }
+  if (String(topic) == SUB_TOPIC_LED_STATE4) {
+    if (message == "ON") {
+      Serial.print("LED ON");
+      digitalWrite(LED4, HIGH);
+    }
+    else if (message == "OFF") {
+      Serial.print("LED OFF");
+      digitalWrite(LED4, LOW);
+    }
+  }
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect(MQTT_CLIENT)) {
+      Serial.println("connected");
+      // Subscribe
+      client.subscribe(SUB_TOPIC_LED_STATE);
+      client.subscribe(SUB_TOPIC_LED_STATE1);
+      client.subscribe(SUB_TOPIC_LED_STATE2);
+      client.subscribe(SUB_TOPIC_LED_STATE3);
+      client.subscribe(SUB_TOPIC_LED_STATE4);
+    }
+     else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      
+      delay(5000);
+}
+}
+}
