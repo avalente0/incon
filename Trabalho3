@@ -1,0 +1,364 @@
+#define BAUDRATE 9600
+
+#define TRING_PIN 2 
+#define ECHO_PIN 10
+#define MICROSECONDS_PER_CENTIMETERS 59
+
+#define LEFT_SENSOR 4
+#define MIDDLE_SENSOR 5
+#define RIGHT_SENSOR 6
+
+#define RIGHT_PWM 3
+#define RIGHT_DIR 12
+
+#define LEFT_PWM 11
+#define LEFT_DIR 13
+
+#define pinVA 7
+#define pinVE 8
+#define pinA 9
+
+#define STATE_STOP 0
+#define STATE_WAIT2START 1
+#define STATE_GOTOPICK 2
+#define STATE_PICK 3
+#define STATE_GOTODROP 4
+#define STATE_DROP 5
+#define STATE_GOTORECHARGE 6
+#define STATE_RECHARGE 7
+#define STATE_GOTOSTOP 8
+#define STATE_COMPLETE 9
+#define STATE_HAZARD 10
+
+int left_value = 0;
+int middle_value = 0;
+int right_value = 0;
+int decimal_value = 0;
+
+int left_speed = 0;
+int right_speed = 0;
+
+int counter = 0;
+
+bool black = true;
+
+const int start_time = 5000;
+const int pick_time = 5000;
+const int drop_time = 10000;
+const int recharge_time = 6000;
+
+unsigned long Inicialtime = 0;
+unsigned long timer = 0;
+unsigned long cm = 0;
+
+int pick = 0;
+int drop = 0;
+int recharge = 0;
+int stop_counter = 0;
+
+bool stringComplete = false;
+bool commandReceived = false;
+
+String inputString = "";
+
+// Control of LED for complete state
+bool ledState = false;
+bool sonarLedState = false;
+unsigned long previousBlinkTime = 0;
+unsigned long previousSonarBlinkTime = 0;
+const unsigned long blinkInterval = 1500;
+const unsigned long sonarBlinkInterval = 800; 
+
+int STATE = 0;
+int aux = 0; 
+int PREVIOUS_STATE = 0;
+
+void setup() {
+    Serial.begin(BAUDRATE);
+
+    pinMode(LEFT_SENSOR, INPUT);
+    pinMode(MIDDLE_SENSOR, INPUT);
+    pinMode(RIGHT_SENSOR, INPUT);
+
+    pinMode(RIGHT_PWM, OUTPUT);
+    pinMode(RIGHT_DIR, OUTPUT);
+
+    pinMode(LEFT_PWM, OUTPUT);
+    pinMode(LEFT_DIR, OUTPUT);
+
+    pinMode(pinVA, OUTPUT);
+    pinMode(pinVE, OUTPUT);
+    pinMode(pinA, OUTPUT);
+
+    pinMode(TRING_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    digitalWrite(RIGHT_DIR, 1); 
+    digitalWrite(LEFT_DIR, 1);
+}
+
+void loop() {
+    read_string();
+    read_sonar();
+    update_line_sensor();
+    update_state();
+    update_motors();
+    update_led();
+}
+
+void serialEvent() {
+    if (Serial.available()) {
+        inputString = Serial.readStringUntil('\n');
+        if (inputString.length() > 0) {
+            stringComplete = true;
+        }
+    }
+}
+
+void parseCommand(String cmd) {
+    int posP = cmd.indexOf('P');
+    int posD = cmd.indexOf('D');
+    int posR = cmd.indexOf('R');
+
+    if (posP > 0 && posD > posP && posR > posD) {
+        String pickStr = cmd.substring(0, posP);
+        String dropStr = cmd.substring(posP + 1, posD);
+        String rechargeStr = cmd.substring(posD + 1, posR);
+
+        pick = pickStr.toInt();
+        drop = dropStr.toInt();
+        recharge = rechargeStr.toInt();
+
+        if (pick > 0 && drop > 0 && recharge > 0) {
+            commandReceived = true;
+        } else {
+            Serial.println("Valores inválidos");
+        }
+    } else {
+        Serial.println("Formato inválido");
+    }
+}
+
+void read_string() {
+    if (stringComplete) {
+        stringComplete = false;
+        parseCommand(inputString);
+    }
+}
+
+void update_line_sensor() {
+    left_value = digitalRead(LEFT_SENSOR);
+    middle_value = digitalRead(MIDDLE_SENSOR);
+    right_value = digitalRead(RIGHT_SENSOR);
+    decimal_value = 0;
+    decimal_value = left_value * 4 + middle_value * 2 + right_value;
+}
+
+void update_led() {
+    analogWrite(pinVA, 0);
+    analogWrite(pinVE, 0);
+    analogWrite(pinA, 0);
+
+    if (cm > 0 && cm < 20) { 
+        if (millis() - previousSonarBlinkTime >= sonarBlinkInterval) {
+            previousSonarBlinkTime = millis();
+            sonarLedState = sonarLedState;
+            analogWrite(pinVA, 255);
+        }
+    }
+
+    switch (STATE) {
+        case STATE_PICK:
+            analogWrite(pinA, 255); 
+            break;
+        case STATE_DROP:
+            analogWrite(pinVE, 255); 
+            break;
+        case STATE_RECHARGE:
+            analogWrite(pinVA, 225); 
+            break;
+        case STATE_COMPLETE:
+            if (millis() - previousBlinkTime >= blinkInterval) {
+                previousBlinkTime = millis();
+                ledState = ledState;
+                analogWrite(pinVE, 255); 
+            }
+            break;
+    }
+}
+
+void update_motors() {
+    if ((STATE == STATE_WAIT2START) || 
+        (STATE == STATE_PICK) || 
+        (STATE == STATE_DROP) || 
+        (STATE == STATE_RECHARGE) || 
+        (STATE == STATE_STOP) || 
+        (STATE == STATE_COMPLETE) ||
+        (cm > 0 && cm <= 20)) {
+        right_speed = 0;
+        left_speed = 0; 
+    } else {
+        switch (decimal_value) {
+            case 0: // Detected line - move forward 000
+                right_speed = 100;
+                left_speed = 100;
+                if (black == false) {
+                    counter = counter + 1;
+                    black = true;
+                }
+                break;
+            case 1: // slight left curve 001
+                black = false;
+                right_speed = 100;
+                left_speed = 70;
+                break;
+            case 2:  // should not happen 010 
+                black = false;
+                break;
+            case 3: // tight left curve 011
+                black = false;
+                right_speed = 35;
+                left_speed = 10;
+                break;
+            case 4: // slight right curve 100
+                black = false;
+                right_speed = 70;
+                left_speed = 100;
+                break;
+            case 5: // line in the middle - move forward 101
+                black = false;
+                right_speed = 100;
+                left_speed = 100;
+                break;
+            case 6: // tight right curve 110
+                black = false;
+                right_speed = 10;
+                left_speed = 35;
+                break;
+            case 7: // 111
+                black = false;
+                STATE = PREVIOUS_STATE;
+                break;
+        }
+    }
+    analogWrite(RIGHT_PWM, right_speed); // Set right motor speed
+    analogWrite(LEFT_PWM, left_speed);   // Set left motor speed 
+}
+
+void update_state() {
+    PREVIOUS_STATE = STATE;
+
+    switch (STATE) {
+        case STATE_STOP:
+            if (PREVIOUS_STATE != STATE_STOP) {
+                stop_counter++;
+                Serial.print("Paragens totais: ");
+                Serial.println(stop_counter);
+            }
+            if (commandReceived == true) {
+                Inicialtime = millis();
+                timer = millis();
+                aux = start_time / 1000;
+                commandReceived = false;  
+                STATE = STATE_WAIT2START;
+            }
+            break;
+        
+        case STATE_WAIT2START:
+            time_remaining();
+            if ((millis() - Inicialtime) >= start_time) {
+                counter = 0;
+                STATE = STATE_GOTOPICK;
+            }
+            break;
+
+        case STATE_GOTOPICK:
+            if (counter == pick) {
+                STATE = STATE_PICK;
+                Inicialtime = millis();
+                timer = millis();
+                aux = pick_time / 1000;
+                counter = 0;
+            }
+            break;
+
+        case STATE_PICK:
+            time_remaining();
+            if ((millis() - Inicialtime) >= pick_time) { 
+                STATE = STATE_GOTODROP;
+            }
+            break;
+        
+        case STATE_GOTODROP:
+            if (counter == drop) {
+                STATE = STATE_DROP;
+                Inicialtime = millis();
+                timer = millis();
+                aux = drop_time / 1000;
+                counter = 0;
+            }
+            break;
+
+        case STATE_DROP:
+            time_remaining(); 
+            if ((millis() - Inicialtime) >= drop_time) { 
+                STATE = STATE_GOTORECHARGE;
+            }
+            break;
+
+        case STATE_GOTORECHARGE:
+            if (counter == recharge) {
+                STATE = STATE_RECHARGE;
+                Inicialtime = millis();
+                timer = millis();
+                aux = recharge_time / 1000;
+                counter = 0;
+            }
+            break;
+
+        case STATE_RECHARGE:
+            time_remaining();
+            if ((millis() - Inicialtime) >= recharge_time) {
+                STATE = STATE_GOTOSTOP;
+            }
+            break;
+
+        case STATE_GOTOSTOP:
+            if (counter == 1) {
+                Inicialtime = millis();
+                STATE = STATE_COMPLETE;
+                counter = 0;
+            }
+            break;
+
+        case STATE_COMPLETE:
+            if (millis() - Inicialtime >= 5000) {
+                STATE = STATE_STOP;
+            }
+            break;
+    }
+}
+
+void read_sonar() {
+    unsigned long duration;
+
+    digitalWrite(TRING_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRING_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRING_PIN, LOW);
+    
+    duration = pulseIn(ECHO_PIN, HIGH, 10000);
+    cm = microsecondsToCentimeters(duration);
+}
+
+long microsecondsToCentimeters(long microseconds) {
+    return microseconds / MICROSECONDS_PER_CENTIMETERS;
+}
+
+void time_remaining() {
+    if (millis() - timer >= 1000) {
+        timer = millis();
+        aux = aux - 1;
+    }
+}
