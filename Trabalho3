@@ -28,7 +28,6 @@
 #define STATE_RECHARGE 7
 #define STATE_GOTOSTOP 8
 #define STATE_COMPLETE 9
-#define STATE_HAZARD 10
 
 int left_value = 0;
 int middle_value = 0;
